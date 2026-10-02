@@ -20,7 +20,7 @@
       border: 1px solid #2a2828;
       border-radius: 12px;
       padding: 12px 16px;
-      width: 260px;
+      width: 280px;
       box-shadow: 0 4px 12px rgba(0,0,0,0.5);
     }
 
@@ -36,7 +36,6 @@
 
     .status-title { display: flex; align-items: center; gap: 8px; font-weight: 500; }
     
-    /* Animated Loading Spinner */
     .spinner {
       width: 14px;
       height: 14px;
@@ -61,6 +60,7 @@
     }
 
     .checkmark { color: #10b981; font-weight: bold; } /* Green checkmark */
+    .error-icon { color: #ef4444; font-weight: bold; } /* Red error cross */
     
     /* INPUT CONTROLS */
     .controls { padding: 12px; background: #121212; display: flex; gap: 8px; border-top: 1px solid #222; }
@@ -81,26 +81,8 @@
   <div class="window">
     <div class="titlebar">Agent Workflow</div>
     
-    <div class="agent-status-container" id="statusContainer">
-      
-      <!-- CARD COMPONENT MATCHING YOUR IMAGE -->
-      <div class="status-card">
-        <div class="status-header">
-          <div class="status-title">
-            <div class="spinner"></div>
-            <span>Working_</span>
-          </div>
-          <span class="timer">5s</span>
-        </div>
-        <div class="status-actions">
-          <div class="action-item">
-            <span class="checkmark">✓</span>
-            <span>Read the project</span>
-          </div>
-        </div>
-      </div>
-
-    </div>
+    <!-- EMPTY CONTAINER ON LOAD -->
+    <div class="agent-status-container" id="statusContainer"></div>
 
     <div class="controls">
       <input type="text" id="userInput" placeholder="Give agent a prompt..." />
@@ -112,7 +94,6 @@
     const PROXY_URL = "https://groq-proxy.a765browne.workers.dev/chat/completions";
     let pyodide;
     let messageHistory = [];
-    let startTime;
     let timerInterval;
 
     async function init() {
@@ -137,29 +118,35 @@
       `;
       container.appendChild(card);
 
-      // Start elapsed timer
       let seconds = 0;
       clearInterval(timerInterval);
       timerInterval = setInterval(() => {
         seconds++;
-        document.getElementById("cardTimer").innerText = `${seconds}s`;
+        const timerEl = document.getElementById("cardTimer");
+        if (timerEl) timerEl.innerText = `${seconds}s`;
       }, 1000);
     }
 
-    function addActionToCard(text) {
+    function addActionToCard(text, isError = false) {
       const actions = document.getElementById("cardActions");
       if (!actions) return;
       
       const item = document.createElement("div");
       item.className = "action-item";
-      item.innerHTML = `<span class="checkmark">✓</span> <span>${text}</span>`;
+      if (isError) {
+        item.innerHTML = `<span class="error-icon">✕</span> <span style="color: #ef4444">${text}</span>`;
+      } else {
+        item.innerHTML = `<span class="checkmark">✓</span> <span>${text}</span>`;
+      }
       actions.appendChild(item);
     }
 
-    function finishCard() {
+    function finishCard(statusText = "Done") {
       clearInterval(timerInterval);
-      const spinner = document.querySelector("#currentCard .spinner");
-      if (spinner) spinner.style.display = "none";
+      const title = document.querySelector("#currentCard .status-title");
+      if (title) {
+        title.innerHTML = `<span>${statusText}</span>`;
+      }
     }
 
     const agentTools = [
@@ -203,6 +190,10 @@
           })
         });
 
+        if (!response.ok) {
+          throw new Error(`Worker returned status ${response.status}`);
+        }
+
         const data = await response.json();
         const choice = data.choices[0].message;
 
@@ -221,7 +212,7 @@
                 let pyOut = await pyodide.runPythonAsync(args.code);
                 addActionToCard(`Ran Python script`);
               } catch (err) {
-                addActionToCard(`Python error: ${err.message}`);
+                addActionToCard(`Python error: ${err.message}`, true);
               }
             }
 
@@ -232,16 +223,17 @@
             });
           }
 
-          finishCard();
+          finishCard("Completed");
         } else {
           addActionToCard(choice.content);
-          finishCard();
+          finishCard("Completed");
           messageHistory.push({ role: "assistant", content: choice.content });
         }
 
       } catch (err) {
-        addActionToCard("Connection error");
-        finishCard();
+        // Handle connection errors clearly with a red cross icon
+        addActionToCard(`Connection error: ${err.message}`, true);
+        finishCard("Failed");
       }
     }
 
